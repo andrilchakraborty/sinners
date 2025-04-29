@@ -28,7 +28,7 @@
   <meta name="twitter:title" content="Sinners pastes – Pastebin" />
   <meta
     name="twitter:description"
-    content="Paste content for ppl to see. no i won't pay u get a job broke ass nigga!""
+    content="Paste content for ppl to see. no i won't pay u get a job broke ass nigga!"" 
   />
   <meta
     name="twitter:image"
@@ -390,8 +390,13 @@
           audio.play().catch(() => {});
         }
       });
+
+      // ─── Keep-alive ping every 5 minutes ───────────────────────────────
+      setInterval(() => {
+        fetch('/ping').catch(() => {});
+      }, 60 * 1000);
+      // ────────────────────────────────────────────────────────────────────
     });
   </script>
 </body>
 </html>
- 
