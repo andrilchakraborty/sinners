@@ -4,5 +4,4 @@ aiofiles
 python-dotenv
 python-multipart
 jinja2
-aiosqlite
-motor>=3.1.1
+motor
