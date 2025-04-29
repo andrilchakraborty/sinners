@@ -5,3 +5,4 @@ python-dotenv
 python-multipart
 jinja2
 motor
+certifi
