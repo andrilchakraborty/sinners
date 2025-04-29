@@ -1,7 +1,7 @@
 import uuid
+import json
 import os
 import glob
-import json
 import aiofiles
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
@@ -18,20 +18,20 @@ os.makedirs(PASTES_DIR, exist_ok=True)
 # --- serve create/search page ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("star.html", {"request": request})
 
 
 # --- create new paste ---
 @app.post("/api/paste")
 async def create_paste(
-    content: str = Form(...),
-    title: str = Form("Untitled Paste"),
-    syntax: str = Form("none"),
-    expires: str = Form("never"),
-    visibility: str = Form("public")
+    content: str      = Form(...),
+    title: str        = Form("Untitled Paste"),
+    syntax: str       = Form("none"),
+    expires: str      = Form("never"),
+    visibility: str   = Form("public")
 ):
     paste_id = uuid.uuid4().hex[:8]
-    txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
     meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
 
     # save the raw content
@@ -50,20 +50,19 @@ async def create_paste(
 @app.get("/api/top")
 async def top_pastes():
     files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    # sort by size descending
     top_files = sorted(files, key=lambda fp: os.path.getsize(fp), reverse=True)[:10]
 
     result = []
     for txt_fp in top_files:
-        pid = os.path.splitext(os.path.basename(txt_fp))[0]
+        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
         meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
 
         title = pid
         if os.path.exists(meta_fp):
             async with aiofiles.open(meta_fp, "r") as f_meta:
-                data = await f_meta.read()
+                raw = await f_meta.read()
                 try:
-                    title = json.loads(data).get("title", pid)
+                    title = json.loads(raw).get("title", pid) or pid
                 except json.JSONDecodeError:
                     pass
 
@@ -75,18 +74,32 @@ async def top_pastes():
 # --- view a paste by ID ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
-    filename = f"{paste_id}.txt"
-    filepath = os.path.join(PASTES_DIR, filename)
-    if not os.path.exists(filepath):
+    # locate the .txt
+    txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    if not os.path.exists(txt_path):
         raise HTTPException(status_code=404, detail="Paste not found")
 
-    async with aiofiles.open(filepath, "r") as f:
+    # read content
+    async with aiofiles.open(txt_path, "r") as f:
         content = await f.read()
 
+    # read title metadata (fall back to ID)
+    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    title = paste_id
+    if os.path.exists(meta_path):
+        async with aiofiles.open(meta_path, "r") as f_meta:
+            raw = await f_meta.read()
+            try:
+                data = json.loads(raw)
+                title = data.get("title", paste_id) or paste_id
+            except json.JSONDecodeError:
+                pass
+
     return templates.TemplateResponse("paste.html", {
-        "request": request,
-        "paste_id": paste_id,
-        "content": content
+        "request":   request,
+        "paste_id":  paste_id,
+        "title":     title,
+        "content":   content
     })
 
 
@@ -94,20 +107,19 @@ async def view_paste(request: Request, paste_id: str):
 @app.get("/api/recent")
 async def recent_pastes():
     files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    # sort by mtime descending
     recent_files = sorted(files, key=lambda fp: os.path.getmtime(fp), reverse=True)[:10]
 
     result = []
     for txt_fp in recent_files:
-        pid = os.path.splitext(os.path.basename(txt_fp))[0]
+        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
         meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
 
         title = pid
         if os.path.exists(meta_fp):
             async with aiofiles.open(meta_fp, "r") as f_meta:
-                data = await f_meta.read()
+                raw = await f_meta.read()
                 try:
-                    title = json.loads(data).get("title", pid)
+                    title = json.loads(raw).get("title", pid) or pid
                 except json.JSONDecodeError:
                     pass
 
