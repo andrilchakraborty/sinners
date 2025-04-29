@@ -1,0 +1,366 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FloydPaste – Pastebin Clone</title>
+
+  <!-- Core styles -->
+  <style>
+    /* RESET & BASE */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #0a0b13;
+      background-image:
+        radial-gradient(circle at top left, rgba(138,43,226,0.3), transparent 60%),
+        radial-gradient(circle at bottom right, rgba(72,61,139,0.3), transparent 70%);
+      color: #e0e0e0;
+      /* custom cursor with hotspot coordinates (16x16) */
+      cursor: url('https://i.pinimg.com/originals/00/27/26/00272639998482c69edf43d6ced8bec4.png') 16 16, auto;
+    }
+    a { text-decoration: none; color: inherit; }
+    button, select, input { font-family: inherit; }
+
+    /* NAVIGATION */
+    header.nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      background: #11121b;
+    }
+    .logo {
+      font-size: 1.8rem;
+      letter-spacing: 2px;
+      color: #fff;
+    }
+    .logo span { font-weight: 300; }
+    nav a {
+      margin-left: 1.5rem;
+      font-size: 0.9rem;
+      color: #aaa;
+      transition: color .2s;
+      cursor: pointer;
+    }
+    nav a:hover { color: #fff; }
+
+    /* MUTE BUTTON */
+    #mute-btn {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      background: transparent;
+      border: none;
+      font-size: 1.5rem;
+      color: #e0e0e0;
+      cursor: pointer;
+      z-index: 1000;
+    }
+
+    /* VOLUME SLIDER */
+    #volume-slider {
+      position: fixed;
+      bottom: 1rem;
+      left: 4rem;
+      width: 100px;
+      z-index: 1000;
+    }
+
+    /* MAIN LAYOUT */
+    main {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    .container {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 2rem;
+    }
+
+    /* VIEWS */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* CONTROLS PANEL */
+    .controls h1 {
+      text-align: center;
+      margin-bottom: 1.5rem;
+      font-size: 2rem;
+    }
+    form {
+      display: grid;
+      gap: 1rem;
+    }
+    form input,
+    form select,
+    form button {
+      padding: .75rem 1rem;
+      border: none;
+      border-radius: 5px;
+      background: #1a1b27;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+    }
+    form button {
+      background: #53ffff;
+      color: #11121b;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    form button:hover { background: #3ad3d3; }
+
+    /* EDITOR PANEL */
+    .editor { display: flex; flex-direction: column; }
+    textarea { height: 450px; border-radius: 5px; }
+    .line-info {
+      text-align: right;
+      margin-top: .5rem;
+      font-size: .8rem;
+      color: #aaa;
+    }
+
+    /* LIST PANEL */
+    .list-view h1 {
+      text-align: center;
+      margin-bottom: 1rem;
+      font-size: 2rem;
+    }
+    .paste-list {
+      list-style: none;
+      padding: 0;
+    }
+    .paste-list li {
+      padding: .75rem 1rem;
+      background: #1a1b27;
+      border-radius: 5px;
+      margin-bottom: .5rem;
+    }
+    .paste-list li a { color: #53ffff; }
+    .paste-list li a:hover { text-decoration: underline; }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      padding: 2rem 0;
+      font-size: 0.8rem;
+      color: #666;
+    }
+    footer a {
+      margin: 0 .5rem;
+      color: #666;
+      transition: color .2s;
+    }
+    footer a:hover { color: #fff; }
+  </style>
+
+  <!-- CodeMirror core CSS & theme -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css"/>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/dracula.min.css"/>
+</head>
+<body>
+
+  <!-- background audio -->
+  <audio
+    id="bg-audio"
+    src="https://cdn.discordapp.com/attachments/1343576085098664020/1366626263518941204/CHICKEN_JOCKEY_FUNK_Slowed.mp3?ex=6811a163&is=68104fe3&hm=77a9a4ea2c59401ffb2aeaaa0ca0ca2acf2833cb06e2e226f36c4426505364e4&"
+    loop
+    autoplay
+  ></audio>
+  <button id="mute-btn" title="Mute/Unmute">🔊</button>
+  <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" title="Volume">
+
+  <!-- navigation -->
+  <header class="nav">
+    <div class="logo">FLOYD<span>PASTE</span></div>
+    <nav>
+      <a id="nav-create">Create Paste</a>
+      <a id="nav-top">Top Pastes</a>
+      <a id="nav-recent">Recent Pastes</a>
+    </nav>
+  </header>
+
+  <!-- main content -->
+  <main>
+    <!-- CREATE VIEW -->
+    <section id="create-view" class="view active">
+      <div class="container">
+        <aside class="controls">
+          <h1>Create Paste</h1>
+          <form id="paste-form">
+            <!-- hidden content field -->
+            <input type="hidden" name="content" id="content-input"/>
+
+            <input type="text" name="title" placeholder="Untitled Paste" required />
+            <select id="syntax" name="syntax" required>
+              <option value="none">No Syntax</option>
+              <option value="htmlmixed">HTML</option>
+              <option value="css">CSS</option>
+              <option value="javascript">JavaScript</option>
+              <option value="python">Python</option>
+              <option value="text/x-java">Java</option>
+              <option value="text/x-csrc">C</option>
+              <option value="text/x-c++src">C++</option>
+              <option value="php">PHP</option>
+              <option value="ruby">Ruby</option>
+              <option value="go">Go</option>
+              <option value="sql">SQL</option>
+              <option value="xml">XML</option>
+              <option value="application/json">JSON</option>
+              <option value="markdown">Markdown</option>
+              <option value="shell">Bash</option>
+            </select>
+            <select name="expires" required>
+              <option>Never Expires</option>
+              <option>10 Minutes</option>
+              <option>1 Hour</option>
+              <option>1 Day</option>
+            </select>
+            <select name="visibility" required>
+              <option>Public</option>
+              <option>Private</option>
+            </select>
+            <button type="submit">Paste</button>
+          </form>
+        </aside>
+        <section class="editor">
+          <textarea id="editor" placeholder="Paste your content here..."></textarea>
+          <div class="line-info" id="line-info">Lines: 1</div>
+        </section>
+      </div>
+    </section>
+
+    <!-- TOP VIEW -->
+    <section id="top-view" class="view list-view">
+      <h1>Top Pastes</h1>
+      <ul class="paste-list" id="top-list"></ul>
+    </section>
+
+    <!-- RECENT VIEW -->
+    <section id="recent-view" class="view list-view">
+      <h1>Recent Pastes</h1>
+      <ul class="paste-list" id="recent-list"></ul>
+    </section>
+  </main>
+
+  <!-- CodeMirror and modes -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/clike/clike.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/php/php.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/ruby/ruby.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/go/go.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/sql/sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/shell/shell.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/markdown/markdown.min.js"></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      // CodeMirror setup
+      const textarea     = document.getElementById('editor');
+      const contentInput = document.getElementById('content-input');
+      const editor       = CodeMirror.fromTextArea(textarea, {
+        mode: 'text/plain',
+        theme: 'dracula',
+        lineNumbers: true,
+        viewportMargin: Infinity
+      });
+
+      // line count
+      const info = document.getElementById('line-info');
+      const updateLineCount = () => {
+        info.textContent = 'Lines: ' + editor.lineCount();
+      };
+      editor.on('changes', updateLineCount);
+      updateLineCount();
+
+      // syntax selection
+      document.getElementById('syntax').addEventListener('change', e => {
+        editor.setOption('mode', e.target.value);
+      });
+
+      // form submission
+      document.getElementById('paste-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        contentInput.value = editor.getValue();
+        const res = await fetch('/api/paste', {
+          method: 'POST',
+          body: new FormData(e.target)
+        });
+        const { url } = await res.json();
+        window.location.href = url;
+      });
+
+      // view management
+      const views = ['create','top','recent'];
+      const showView = id => {
+        views.forEach(v => document.getElementById(v+'-view').classList.remove('active'));
+        document.getElementById(id+'-view').classList.add('active');
+      };
+
+      // fetch & render lists from API
+      const renderList = (listId, items) => {
+        const ul = document.getElementById(listId);
+        ul.innerHTML = items.map(p => `
+          <li><a href="/paste/${p.id}">${p.title || p.id}</a></li>
+        `).join('');
+      };
+      const loadTop = async () => {
+        const data = await fetch('/api/top').then(r => r.json());
+        renderList('top-list', data);
+      };
+      const loadRecent = async () => {
+        const data = await fetch('/api/recent').then(r => r.json());
+        renderList('recent-list', data);
+      };
+
+      // nav handlers
+      document.getElementById('nav-create').onclick    = e => { e.preventDefault(); showView('create'); };
+      document.getElementById('nav-top').onclick       = async e => { e.preventDefault(); await loadTop(); showView('top'); };
+      document.getElementById('nav-recent').onclick    = async e => { e.preventDefault(); await loadRecent(); showView('recent'); };
+
+      // background audio control
+      const audio   = document.getElementById('bg-audio');
+      const btn     = document.getElementById('mute-btn');
+      const slider  = document.getElementById('volume-slider');
+
+      // initial state
+      audio.volume = slider.value;
+      btn.textContent = audio.muted ? '🔇' : '🔊';
+
+      // on first user click anywhere, start playback
+      const kickstart = () => {
+        audio.play().catch(e => console.warn('playback error', e));
+        document.body.removeEventListener('click', kickstart);
+      };
+      document.body.addEventListener('click', kickstart, { once: true });
+
+      // mute/unmute toggle
+      btn.addEventListener('click', () => {
+        audio.muted = !audio.muted;
+        btn.textContent = audio.muted ? '🔇' : '🔊';
+        // if unmuting, ensure it's playing
+        if (!audio.muted) audio.play().catch(() => {});
+      });
+
+      // volume slider control
+      slider.addEventListener('input', e => {
+        audio.volume = e.target.value;
+        if (audio.muted && audio.volume > 0) {
+          audio.muted = false;
+          btn.textContent = '🔊';
+          audio.play().catch(() => {});
+        }
+      });
+    });
+  </script>
+</body>
+</html>
