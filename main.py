@@ -1,58 +1,27 @@
-import os
-import re
 import uuid
 import json
-from datetime import datetime, timedelta
-
+import os
+import glob
+import aiofiles
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-import certifi
-from motor.motor_asyncio import AsyncIOMotorClient
-
-# ─── CONFIG ────────────────────────────────────────────────────────────────────
-MONGO_URI = os.getenv("MONGO_URI", "")
-if not MONGO_URI:
-    raise RuntimeError("Set MONGO_URI env var!")
-
-# Initialize Motor with TLS + certifi’s CA bundle for Atlas
-mongo = AsyncIOMotorClient(
-    MONGO_URI,
-    tls=True,
-    tlsCAFile=certifi.where(),
-)
-db  = mongo["pastes_db"]
-col = db["pastes"]
-
-app       = FastAPI()
+# --- setup ---
+app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-
-# ─── HELPERS ────────────────────────────────────────────────────────────────────
-def compute_expiry(created: datetime, expires: str) -> str | None:
-    if expires == "never":
-        return None
-    m = re.match(r"^(\d+)([smhd])$", expires)
-    if not m:
-        return None
-    n, unit = int(m.group(1)), m.group(2)
-    delta = {
-        "s": timedelta(seconds=n),
-        "m": timedelta(minutes=n),
-        "h": timedelta(hours=n),
-        "d": timedelta(days=n),
-    }[unit]
-    return (created + delta).isoformat()
+PASTES_DIR = "pastes"
+os.makedirs(PASTES_DIR, exist_ok=True)
 
 
-# ─── ROUTES ─────────────────────────────────────────────────────────────────────
+# --- serve create/search page ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("star.html", {"request": request})
 
 
-# ─── CREATE PASTE ──────────────────────────────────────────────────────────────
+# --- create new paste ---
 @app.post("/api/paste")
 async def create_paste(
     content: str      = Form(...),
@@ -61,74 +30,108 @@ async def create_paste(
     expires: str      = Form("never"),
     visibility: str   = Form("public")
 ):
-    now      = datetime.utcnow()
     paste_id = uuid.uuid4().hex[:8]
-    record   = {
-        "id":         paste_id,
-        "content":    content,
-        "title":      title,
-        "syntax":     syntax,
-        "visibility": visibility,
-        "created_at": now.isoformat(),
-        "expires_at": compute_expiry(now, expires)
-    }
-    await col.insert_one(record)
+    txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+
+    # save the raw content
+    async with aiofiles.open(txt_path, "w") as f_txt:
+        await f_txt.write(content)
+
+    # save metadata (only title for now)
+    meta = {"title": title}
+    async with aiofiles.open(meta_path, "w") as f_meta:
+        await f_meta.write(json.dumps(meta))
+
     return {"url": f"/paste/{paste_id}"}
 
 
-# ─── VIEW PASTE ────────────────────────────────────────────────────────────────
+# --- top pastes (by file size) ---
+@app.get("/api/top")
+async def top_pastes():
+    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
+    top_files = sorted(files, key=lambda fp: os.path.getsize(fp), reverse=True)[:10]
+
+    result = []
+    for txt_fp in top_files:
+        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
+        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
+
+        title = pid
+        if os.path.exists(meta_fp):
+            async with aiofiles.open(meta_fp, "r") as f_meta:
+                raw = await f_meta.read()
+                try:
+                    title = json.loads(raw).get("title", pid) or pid
+                except json.JSONDecodeError:
+                    pass
+
+        result.append({"id": pid, "title": title})
+
+    return result
+
+
+# --- view a paste by ID ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
-    rec = await col.find_one({"id": paste_id})
-    if not rec:
-        raise HTTPException(404, "Paste not found")
-    exp = rec.get("expires_at")
-    if exp and datetime.utcnow() >= datetime.fromisoformat(exp):
-        raise HTTPException(404, "Paste expired")
+    # locate the .txt
+    txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    if not os.path.exists(txt_path):
+        raise HTTPException(status_code=404, detail="Paste not found")
+
+    # read content
+    async with aiofiles.open(txt_path, "r") as f:
+        content = await f.read()
+
+    # read title metadata (fall back to ID)
+    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    title = paste_id
+    if os.path.exists(meta_path):
+        async with aiofiles.open(meta_path, "r") as f_meta:
+            raw = await f_meta.read()
+            try:
+                data = json.loads(raw)
+                title = data.get("title", paste_id) or paste_id
+            except json.JSONDecodeError:
+                pass
+
     return templates.TemplateResponse("paste.html", {
-        "request":  request,
-        "paste_id": rec["id"],
-        "title":    rec["title"],
-        "content":  rec["content"]
+        "request":   request,
+        "paste_id":  paste_id,
+        "title":     title,
+        "content":   content
     })
 
 
-# ─── TOP PASTES ───────────────────────────────────────────────────────────────
-@app.get("/api/top")
-async def top_pastes():
-    cursor = col.find({
-        "$or": [
-            {"expires_at": None},
-            {"expires_at": {"$gt": datetime.utcnow().isoformat()}}
-        ]
-    }).sort([("content", -1)]).limit(10)
-    docs = await cursor.to_list(10)
-    return [{"id": d["id"], "title": d["title"]} for d in docs]
-
-
-# ─── RECENT PASTES ─────────────────────────────────────────────────────────────
+# --- recent pastes (by modification time) ---
 @app.get("/api/recent")
 async def recent_pastes():
-    cursor = col.find({
-        "$or": [
-            {"expires_at": None},
-            {"expires_at": {"$gt": datetime.utcnow().isoformat()}}
-        ]
-    }).sort([("created_at", -1)]).limit(10)
-    docs = await cursor.to_list(10)
-    return [{"id": d["id"], "title": d["title"]} for d in docs]
+    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
+    recent_files = sorted(files, key=lambda fp: os.path.getmtime(fp), reverse=True)[:10]
+
+    result = []
+    for txt_fp in recent_files:
+        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
+        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
+
+        title = pid
+        if os.path.exists(meta_fp):
+            async with aiofiles.open(meta_fp, "r") as f_meta:
+                raw = await f_meta.read()
+                try:
+                    title = json.loads(raw).get("title", pid) or pid
+                except json.JSONDecodeError:
+                    pass
+
+        result.append({"id": pid, "title": title})
+
+    return result
 
 
-# ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
-@app.get("/ping")
-async def ping():
-    return {"status": "alive"}
-
-
-# ─── STARTUP ────────────────────────────────────────────────────────────────────
 def start():
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 if __name__ == "__main__":
     start()
