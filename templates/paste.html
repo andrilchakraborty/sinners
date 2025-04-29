@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Paste {{ paste_id }} – SpaceDevelopment</title>
+
+  <style>
+    /* minimal dark theme */
+    body {
+      margin: 0; padding: 0;
+      background: #0a0b13; color: #e0e0e0;
+      font-family:'Segoe UI',sans-serif;
+    }
+    header.nav {
+      padding:1rem 2rem; background:#11121b; color:#fff;
+    }
+    header.nav .logo { font-size:1.5rem; }
+    main {
+      padding:2rem;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .title-row h1 {
+      margin: 0;
+      font-size: 1.8rem;
+    }
+    .copy-btn {
+      margin-left: 1rem;
+      padding: .5rem 1rem;
+      background: #53ffff;
+      color: #11121b;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: .9rem;
+      transition: background .2s;
+    }
+    .copy-btn:hover {
+      background: #3ad3d3;
+    }
+    .CodeMirror {
+      height: auto;
+      border-radius: 5px;
+    }
+    footer {
+      text-align:center; padding:1rem; color:#666; font-size:.8rem;
+    }
+  </style>
+
+  <!-- CodeMirror CSS -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css"/>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/dracula.min.css"/>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="logo">SPACE<span style="font-weight:300;">DEVELOPMENT</span></div>
+  </header>
+
+  <main>
+    <div class="title-row">
+      <h1>Paste {{ paste_id }}</h1>
+      <button id="copy-btn" class="copy-btn" title="Copy to clipboard">Copy</button>
+    </div>
+    <textarea id="paste-editor">{{ content }}</textarea>
+  </main>
+
+  <footer>© 2025 niggapaste.onrender</footer>
+
+  <!-- CodeMirror & modes -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/clike/clike.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/php/php.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/ruby/ruby.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/go/go.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/sql/sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/shell/shell.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/markdown/markdown.min.js"></script>
+
+  <script>
+    // turn the <textarea> into a read-only CodeMirror
+    const editor = CodeMirror.fromTextArea(
+      document.getElementById('paste-editor'), {
+        mode: 'text/plain',
+        theme: 'dracula',
+        lineNumbers: true,
+        readOnly: true,
+        viewportMargin: Infinity
+      }
+    );
+
+    // copy button logic
+    document.getElementById('copy-btn').addEventListener('click', () => {
+      const code = editor.getValue();
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copy-btn');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = original, 1500);
+      });
+    });
+  </script>
+</body>
+</html>
