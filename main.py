@@ -135,6 +135,20 @@ async def recent_pastes():
 
     return result
 
+@app.on_event("startup")
+async def schedule_ping_task():
+    async def ping_loop():
+        while True:
+            try:
+                # call your existing ping function
+                await ping()
+            except Exception as e:
+                # log or ignore errors
+                print(f"scheduled ping failed: {e!r}")
+            await asyncio.sleep(10)  # wait 10 seconds
+
+    # fire-and-forget the loop
+    asyncio.create_task(ping_loop())
 
 # ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
 @app.get("/ping")
