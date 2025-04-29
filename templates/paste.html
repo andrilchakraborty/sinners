@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Paste {{ paste_id }} – Floyd Paste</title>
+  <title>{{ title or paste_id }} – FloydPaste</title>
 
   <style>
     /* minimal dark theme */
@@ -42,10 +42,6 @@
     .copy-btn:hover {
       background: #3ad3d3;
     }
-    .CodeMirror {
-      height: auto;
-      border-radius: 5px;
-    }
     footer {
       text-align:center; padding:1rem; color:#666; font-size:.8rem;
     }
@@ -60,18 +56,23 @@
 <body>
 
   <header class="nav">
-    <div class="logo">SPACE<span style="font-weight:300;">DEVELOPMENT</span></div>
+    <div class="logo">FLOYD<span style="font-weight:300;">PASTE</span></div>
   </header>
 
   <main>
     <div class="title-row">
-      <h1>Paste {{ paste_id }}</h1>
-      <button id="copy-btn" class="copy-btn" title="Copy to clipboard">Copy</button>
+      <!-- show the user-entered title, or fallback to the ID -->
+      <h1>{{ title or paste_id }}</h1>
+
+      <button id="copy-btn" class="copy-btn" title="Copy to clipboard">
+        Copy
+      </button>
     </div>
-    <textarea id="paste-editor">{{ content }}</textarea>
+
+    <textarea id="paste-editor" readonly>{{ content }}</textarea>
   </main>
 
-  <footer>© 2025 niggapaste.onrender</footer>
+  <footer>© 2025 FloydPaste</footer>
 
   <!-- CodeMirror & modes -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
@@ -89,7 +90,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/markdown/markdown.min.js"></script>
 
   <script>
-    // turn the <textarea> into a read-only CodeMirror
+    // Initialize CodeMirror in read-only mode
     const editor = CodeMirror.fromTextArea(
       document.getElementById('paste-editor'), {
         mode: 'text/plain',
@@ -100,14 +101,14 @@
       }
     );
 
-    // copy button logic
+    // Copy button logic
     document.getElementById('copy-btn').addEventListener('click', () => {
       const code = editor.getValue();
       navigator.clipboard.writeText(code).then(() => {
         const btn = document.getElementById('copy-btn');
-        const original = btn.textContent;
+        const orig = btn.textContent;
         btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = original, 1500);
+        setTimeout(() => btn.textContent = orig, 1500);
       });
     });
   </script>
