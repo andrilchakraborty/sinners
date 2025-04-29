@@ -1,21 +1,82 @@
+# file: main.py
+import os
+import re
 import uuid
 import json
-import os
-import glob
-import aiofiles
+import aiosqlite
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-# --- setup ---
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-
-PASTES_DIR = "pastes"
+# --- config & directories ---
+DB_PATH    = os.getenv("PASTE_DB", "pastes.db")
+PASTES_DIR = "pastes"            # still keep for any future file‐based assets
 os.makedirs(PASTES_DIR, exist_ok=True)
 
+app       = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-# --- serve create/search page ---
+# --- startup: ensure our SQLite table exists ---
+@app.on_event("startup")
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pastes (
+                id          TEXT PRIMARY KEY,
+                content     TEXT        NOT NULL,
+                title       TEXT        NOT NULL,
+                syntax      TEXT        NOT NULL,
+                visibility  TEXT        NOT NULL,
+                created_at  TIMESTAMP   NOT NULL,
+                expires_at  TIMESTAMP   NULL
+            )
+        """)
+        await db.commit()
+
+
+# --- helper to prune or detect expiration ---
+def compute_expiry(created: datetime, expires: str) -> datetime | None:
+    """
+    expires: 'never' or e.g. '10m', '2h', '3d'
+    """
+    if expires == "never":
+        return None
+
+    m = re.match(r"^(\d+)([smhd])$", expires)
+    if not m:
+        # invalid TTL string → treat as never
+        return None
+
+    n, unit = int(m.group(1)), m.group(2)
+    delta = {
+        "s": timedelta(seconds=n),
+        "m": timedelta(minutes=n),
+        "h": timedelta(hours=n),
+        "d": timedelta(days=n),
+    }[unit]
+    return created + delta
+
+
+async def is_still_valid(db, paste_id: str) -> bool:
+    """ returns False if not found or expired """
+    row = await db.execute_fetchone(
+        "SELECT expires_at FROM pastes WHERE id = ?",
+        (paste_id,)
+    )
+    if not row:
+        return False
+
+    expires_at, = row
+    if expires_at is None:
+        return True
+
+    # compare UTC
+    return datetime.utcnow() < datetime.fromisoformat(expires_at)
+
+
+# --- home page / create form ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -27,110 +88,104 @@ async def create_paste(
     content: str      = Form(...),
     title: str        = Form("Untitled Paste"),
     syntax: str       = Form("none"),
-    expires: str      = Form("never"),
-    visibility: str   = Form("public")
+    expires: str      = Form("never"),   # 'never' or '10m', '2h', etc.
+    visibility: str   = Form("public")   # not yet enforced
 ):
-    paste_id = uuid.uuid4().hex[:8]
-    txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    paste_id    = uuid.uuid4().hex[:8]
+    created_at  = datetime.utcnow()
+    expires_at  = compute_expiry(created_at, expires)
 
-    # save the raw content
-    async with aiofiles.open(txt_path, "w") as f_txt:
-        await f_txt.write(content)
-
-    # save metadata (only title for now)
-    meta = {"title": title}
-    async with aiofiles.open(meta_path, "w") as f_meta:
-        await f_meta.write(json.dumps(meta))
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO pastes (
+                id, content, title, syntax, visibility, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                paste_id,
+                content,
+                title,
+                syntax,
+                visibility,
+                created_at.isoformat(),
+                expires_at.isoformat() if expires_at else None
+            )
+        )
+        await db.commit()
 
     return {"url": f"/paste/{paste_id}"}
 
 
-# --- top pastes (by file size) ---
-@app.get("/api/top")
-async def top_pastes():
-    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    top_files = sorted(files, key=lambda fp: os.path.getsize(fp), reverse=True)[:10]
-
-    result = []
-    for txt_fp in top_files:
-        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
-        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
-
-        title = pid
-        if os.path.exists(meta_fp):
-            async with aiofiles.open(meta_fp, "r") as f_meta:
-                raw = await f_meta.read()
-                try:
-                    title = json.loads(raw).get("title", pid) or pid
-                except json.JSONDecodeError:
-                    pass
-
-        result.append({"id": pid, "title": title})
-
-    return result
-
-
-# --- view a paste by ID ---
+# --- view one paste ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
-    # locate the .txt
-    txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    if not os.path.exists(txt_path):
-        raise HTTPException(status_code=404, detail="Paste not found")
+    async with aiosqlite.connect(DB_PATH) as db:
+        # check existence + expiry
+        if not await is_still_valid(db, paste_id):
+            raise HTTPException(status_code=404, detail="Paste not found or expired")
 
-    # read content
-    async with aiofiles.open(txt_path, "r") as f:
-        content = await f.read()
-
-    # read title metadata (fall back to ID)
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
-    title = paste_id
-    if os.path.exists(meta_path):
-        async with aiofiles.open(meta_path, "r") as f_meta:
-            raw = await f_meta.read()
-            try:
-                data = json.loads(raw)
-                title = data.get("title", paste_id) or paste_id
-            except json.JSONDecodeError:
-                pass
-
+        row = await db.execute_fetchone(
+            """
+            SELECT content, title
+              FROM pastes
+             WHERE id = ?
+            """,
+            (paste_id,)
+        )
+    content, title = row
     return templates.TemplateResponse("paste.html", {
-        "request":   request,
-        "paste_id":  paste_id,
-        "title":     title,
-        "content":   content
+        "request":  request,
+        "paste_id": paste_id,
+        "title":    title,
+        "content":  content
     })
 
 
-# --- recent pastes (by modification time) ---
+# --- list top pastes (largest) ---
+@app.get("/api/top")
+async def top_pastes():
+    now_iso = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT id, title, LENGTH(content) AS size
+              FROM pastes
+             WHERE expires_at IS NULL OR expires_at > ?
+             ORDER BY size DESC
+             LIMIT 10
+            """,
+            (now_iso,)
+        )
+        rows = await cursor.fetchall()
+
+    return [{"id": pid, "title": title} for pid, title, _ in rows]
+
+
+# --- list recent pastes (newest) ---
 @app.get("/api/recent")
 async def recent_pastes():
-    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    recent_files = sorted(files, key=lambda fp: os.path.getmtime(fp), reverse=True)[:10]
+    now_iso = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT id, title
+              FROM pastes
+             WHERE expires_at IS NULL OR expires_at > ?
+             ORDER BY created_at DESC
+             LIMIT 10
+            """,
+            (now_iso,)
+        )
+        rows = await cursor.fetchall()
 
-    result = []
-    for txt_fp in recent_files:
-        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
-        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
-
-        title = pid
-        if os.path.exists(meta_fp):
-            async with aiofiles.open(meta_fp, "r") as f_meta:
-                raw = await f_meta.read()
-                try:
-                    title = json.loads(raw).get("title", pid) or pid
-                except json.JSONDecodeError:
-                    pass
-
-        result.append({"id": pid, "title": title})
-
-    return result
+    return [{"id": pid, "title": title} for pid, title in rows]
 
 
+# --- run with uvicorn ---
 def start():
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=False)
 
 
 if __name__ == "__main__":
