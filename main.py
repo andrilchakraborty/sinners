@@ -1,21 +1,20 @@
-import os
-import re
-import uuid
-import json
-import boto3
+import os, re, uuid, json
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from motor.motor_asyncio import AsyncIOMotorClient  # <— new
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────────
-AWS_REGION      = os.getenv("AWS_REGION", "us-east-1")
-S3_BUCKET       = os.getenv("PASTES_S3_BUCKET", "")
-if not S3_BUCKET:
-    raise RuntimeError("Set PASTES_S3_BUCKET env var!")
+MONGO_URI = os.getenv("MONGO_URI", "")
+if not MONGO_URI:
+    raise RuntimeError("Set MONGO_URI env var!")
 
-s3 = boto3.client("s3", region_name=AWS_REGION)
+mongo = AsyncIOMotorClient(MONGO_URI)
+db    = mongo["pastes_db"]
+col   = db["pastes"]
+
 app       = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
@@ -34,40 +33,6 @@ def compute_expiry(created: datetime, expires: str) -> str | None:
              "d": timedelta(days=n)}[unit]
     return (created + delta).isoformat()
 
-def s3_key(paste_id: str) -> str:
-    return f"pastes/{paste_id}.json"
-
-def save_paste(record: dict) -> None:
-    s3.put_object(
-        Bucket=S3_BUCKET,
-        Key=s3_key(record["id"]),
-        Body=json.dumps(record),
-        ContentType="application/json"
-    )
-
-def load_paste(paste_id: str) -> dict | None:
-    try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key(paste_id))
-    except s3.exceptions.NoSuchKey:
-        return None
-    body = obj["Body"].read()
-    return json.loads(body)
-
-def list_all_pastes() -> list[dict]:
-    objs = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix="pastes/").get("Contents", [])
-    now = datetime.utcnow()
-    recs = []
-    for o in objs:
-        if not o["Key"].endswith(".json"):
-            continue
-        pid = os.path.basename(o["Key"])[:-5]
-        rec = load_paste(pid)
-        if not rec:
-            continue
-        exp = rec.get("expires_at")
-        if exp is None or now < datetime.fromisoformat(exp):
-            recs.append(rec)
-    return recs
 
 
 # ─── ROUTES ─────────────────────────────────────────────────────────────────────
@@ -75,17 +40,18 @@ def list_all_pastes() -> list[dict]:
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+# ─── CREATE PASTE ──────────────────────────────────────────────────────────────
 @app.post("/api/paste")
 async def create_paste(
-    content: str    = Form(...),
-    title: str      = Form("Untitled Paste"),
-    syntax: str     = Form("none"),
-    expires: str    = Form("never"),
-    visibility: str = Form("public")
+    content: str      = Form(...),
+    title: str        = Form("Untitled Paste"),
+    syntax: str       = Form("none"),
+    expires: str      = Form("never"),
+    visibility: str   = Form("public")
 ):
-    now = datetime.utcnow()
+    now      = datetime.utcnow()
     paste_id = uuid.uuid4().hex[:8]
-    record = {
+    record   = {
         "id":         paste_id,
         "content":    content,
         "title":      title,
@@ -94,39 +60,57 @@ async def create_paste(
         "created_at": now.isoformat(),
         "expires_at": compute_expiry(now, expires)
     }
-    save_paste(record)
+    await col.insert_one(record)
     return {"url": f"/paste/{paste_id}"}
 
+
+# ─── VIEW PASTE ────────────────────────────────────────────────────────────────
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
-    rec = load_paste(paste_id)
+    rec = await col.find_one({"id": paste_id})
     if not rec:
-        raise HTTPException(status_code=404, detail="Paste not found")
+        raise HTTPException(404, "Paste not found")
     exp = rec.get("expires_at")
-    if exp is not None and datetime.utcnow() >= datetime.fromisoformat(exp):
-        raise HTTPException(status_code=404, detail="Paste expired")
+    if exp and datetime.utcnow() >= datetime.fromisoformat(exp):
+        raise HTTPException(404, "Paste expired")
     return templates.TemplateResponse("paste.html", {
-        "request":  request,
+        "request": request,
         "paste_id": rec["id"],
-        "title":    rec["title"],
-        "content":  rec["content"]
+        "title": rec["title"],
+        "content": rec["content"]
     })
 
+
+# ─── TOP PASTES ────────────────────────────────────────────────────────────────
 @app.get("/api/top")
 async def top_pastes():
-    recs = list_all_pastes()
-    recs.sort(key=lambda r: len(r["content"]), reverse=True)
-    return [{"id": r["id"], "title": r["title"]} for r in recs[:10]]
+    # sort by content length desc, limit 10
+    cursor = col.find({
+        "$or": [
+            {"expires_at": None},
+            {"expires_at": {"$gt": datetime.utcnow().isoformat()}}
+        ]
+    }).sort([("content", -1)]).limit(10)
+    docs = await cursor.to_list(10)
+    return [{"id": d["id"], "title": d["title"]} for d in docs]
 
+
+# ─── RECENT PASTES ─────────────────────────────────────────────────────────────
 @app.get("/api/recent")
 async def recent_pastes():
-    recs = list_all_pastes()
-    recs.sort(key=lambda r: r["created_at"], reverse=True)
-    return [{"id": r["id"], "title": r["title"]} for r in recs[:10]]
+    cursor = col.find({
+        "$or": [
+            {"expires_at": None},
+            {"expires_at": {"$gt": datetime.utcnow().isoformat()}}
+        ]
+    }).sort([("created_at", -1)]).limit(10)
+    docs = await cursor.to_list(10)
+    return [{"id": d["id"], "title": d["title"]} for d in docs]
 
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
+
 
 # ─── STARTUP ────────────────────────────────────────────────────────────────────
 def start():
