@@ -127,6 +127,10 @@ async def recent_pastes():
 
     return result
 
+# ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
+@app.get("/ping")
+async def ping():
+    return {"status": "alive"}
 
 def start():
     import uvicorn
