@@ -1,4 +1,4 @@
-# file: main.py
+
 import os
 import re
 import uuid
@@ -10,16 +10,16 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-# --- config & directories ---
+
 DB_PATH    = os.getenv("PASTE_DB", "pastes.db")
-PASTES_DIR = "pastes"            # still keep for any future file-based assets
+PASTES_DIR = "pastes"           
 os.makedirs(PASTES_DIR, exist_ok=True)
 
 app       = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 
-# --- startup: ensure our SQLite table exists ---
+
 @app.on_event("startup")
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
