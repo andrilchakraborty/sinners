@@ -5,4 +5,4 @@ python-dotenv
 python-multipart
 jinja2
 aiosqlite
-boto3
+motor>=3.1.1
