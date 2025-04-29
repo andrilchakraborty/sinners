@@ -23,7 +23,7 @@ SERVICE_URL = "https://sinners-pastes.onrender.com"
 # --- serve create/search page ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("star.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 # --- create new paste ---
