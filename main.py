@@ -1,19 +1,29 @@
-import os, re, uuid, json
+import os
+import re
+import uuid
+import json
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from motor.motor_asyncio import AsyncIOMotorClient  # <— new
+
+import certifi
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────────
 MONGO_URI = os.getenv("MONGO_URI", "")
 if not MONGO_URI:
     raise RuntimeError("Set MONGO_URI env var!")
 
-mongo = AsyncIOMotorClient(MONGO_URI)
-db    = mongo["pastes_db"]
-col   = db["pastes"]
+# Initialize Motor with TLS + certifi’s CA bundle for Atlas
+mongo = AsyncIOMotorClient(
+    MONGO_URI,
+    tls=True,
+    tlsCAFile=certifi.where(),
+)
+db  = mongo["pastes_db"]
+col = db["pastes"]
 
 app       = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -27,18 +37,20 @@ def compute_expiry(created: datetime, expires: str) -> str | None:
     if not m:
         return None
     n, unit = int(m.group(1)), m.group(2)
-    delta = {"s": timedelta(seconds=n),
-             "m": timedelta(minutes=n),
-             "h": timedelta(hours=n),
-             "d": timedelta(days=n)}[unit]
+    delta = {
+        "s": timedelta(seconds=n),
+        "m": timedelta(minutes=n),
+        "h": timedelta(hours=n),
+        "d": timedelta(days=n),
+    }[unit]
     return (created + delta).isoformat()
-
 
 
 # ─── ROUTES ─────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
 
 # ─── CREATE PASTE ──────────────────────────────────────────────────────────────
 @app.post("/api/paste")
@@ -74,17 +86,16 @@ async def view_paste(request: Request, paste_id: str):
     if exp and datetime.utcnow() >= datetime.fromisoformat(exp):
         raise HTTPException(404, "Paste expired")
     return templates.TemplateResponse("paste.html", {
-        "request": request,
+        "request":  request,
         "paste_id": rec["id"],
-        "title": rec["title"],
-        "content": rec["content"]
+        "title":    rec["title"],
+        "content":  rec["content"]
     })
 
 
-# ─── TOP PASTES ────────────────────────────────────────────────────────────────
+# ─── TOP PASTES ───────────────────────────────────────────────────────────────
 @app.get("/api/top")
 async def top_pastes():
-    # sort by content length desc, limit 10
     cursor = col.find({
         "$or": [
             {"expires_at": None},
@@ -107,6 +118,8 @@ async def recent_pastes():
     docs = await cursor.to_list(10)
     return [{"id": d["id"], "title": d["title"]} for d in docs]
 
+
+# ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
@@ -115,7 +128,7 @@ async def ping():
 # ─── STARTUP ────────────────────────────────────────────────────────────────────
 def start():
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT","8000")))
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
 if __name__ == "__main__":
     start()
