@@ -12,11 +12,12 @@ from fastapi.templating import Jinja2Templates
 
 # --- config & directories ---
 DB_PATH    = os.getenv("PASTE_DB", "pastes.db")
-PASTES_DIR = "pastes"            # still keep for any future file‐based assets
+PASTES_DIR = "pastes"            # still keep for any future file-based assets
 os.makedirs(PASTES_DIR, exist_ok=True)
 
 app       = FastAPI()
 templates = Jinja2Templates(directory="templates")
+
 
 # --- startup: ensure our SQLite table exists ---
 @app.on_event("startup")
@@ -36,7 +37,7 @@ async def init_db():
         await db.commit()
 
 
-# --- helper to prune or detect expiration ---
+# --- helper to compute expiration timestamps ---
 def compute_expiry(created: datetime, expires: str) -> datetime | None:
     """
     expires: 'never' or e.g. '10m', '2h', '3d'
@@ -46,7 +47,6 @@ def compute_expiry(created: datetime, expires: str) -> datetime | None:
 
     m = re.match(r"^(\d+)([smhd])$", expires)
     if not m:
-        # invalid TTL string → treat as never
         return None
 
     n, unit = int(m.group(1)), m.group(2)
@@ -60,23 +60,19 @@ def compute_expiry(created: datetime, expires: str) -> datetime | None:
 
 
 async def is_still_valid(db, paste_id: str) -> bool:
-    """ returns False if not found or expired """
     row = await db.execute_fetchone(
         "SELECT expires_at FROM pastes WHERE id = ?",
         (paste_id,)
     )
     if not row:
         return False
-
-    expires_at, = row
+    (expires_at,) = row
     if expires_at is None:
         return True
-
-    # compare UTC
     return datetime.utcnow() < datetime.fromisoformat(expires_at)
 
 
-# --- home page / create form ---
+# --- home page / paste form ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -91,9 +87,9 @@ async def create_paste(
     expires: str      = Form("never"),   # 'never' or '10m', '2h', etc.
     visibility: str   = Form("public")   # not yet enforced
 ):
-    paste_id    = uuid.uuid4().hex[:8]
-    created_at  = datetime.utcnow()
-    expires_at  = compute_expiry(created_at, expires)
+    paste_id   = uuid.uuid4().hex[:8]
+    now        = datetime.utcnow()
+    expires_at = compute_expiry(now, expires)
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -108,7 +104,7 @@ async def create_paste(
                 title,
                 syntax,
                 visibility,
-                created_at.isoformat(),
+                now.isoformat(),
                 expires_at.isoformat() if expires_at else None
             )
         )
@@ -121,18 +117,14 @@ async def create_paste(
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
     async with aiosqlite.connect(DB_PATH) as db:
-        # check existence + expiry
         if not await is_still_valid(db, paste_id):
             raise HTTPException(status_code=404, detail="Paste not found or expired")
 
         row = await db.execute_fetchone(
-            """
-            SELECT content, title
-              FROM pastes
-             WHERE id = ?
-            """,
+            "SELECT content, title FROM pastes WHERE id = ?",
             (paste_id,)
         )
+
     content, title = row
     return templates.TemplateResponse("paste.html", {
         "request":  request,
@@ -182,10 +174,16 @@ async def recent_pastes():
     return [{"id": pid, "title": title} for pid, title in rows]
 
 
+# --- new keep-alive endpoint for uptime monitors ---
+@app.get("/ping")
+async def ping():
+    return {"status": "alive"}
+
+
 # --- run with uvicorn ---
 def start():
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
 
 if __name__ == "__main__":
