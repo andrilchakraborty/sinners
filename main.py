@@ -3,6 +3,8 @@ import json
 import os
 import glob
 import aiofiles
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -11,8 +13,15 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-PASTES_DIR = "pastes"
-os.makedirs(PASTES_DIR, exist_ok=True)
+# Use Railway persistent volume if available, otherwise local folder
+volume_mount = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+if volume_mount:
+    # e.g. RAILWAY_VOLUME_MOUNT_PATH == "/app/pastes"
+    PASTES_DIR = Path(volume_mount)
+else:
+    PASTES_DIR = Path(__file__).parent / "pastes"
+
+PASTES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # --- serve create/search page ---
@@ -31,8 +40,8 @@ async def create_paste(
     visibility: str   = Form("public")
 ):
     paste_id = uuid.uuid4().hex[:8]
-    txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    txt_path  = PASTES_DIR / f"{paste_id}.txt"
+    meta_path = PASTES_DIR / f"{paste_id}.json"
 
     # save the raw content
     async with aiofiles.open(txt_path, "w") as f_txt:
@@ -49,16 +58,16 @@ async def create_paste(
 # --- top pastes (by file size) ---
 @app.get("/api/top")
 async def top_pastes():
-    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    top_files = sorted(files, key=lambda fp: os.path.getsize(fp), reverse=True)[:10]
+    txt_files = glob.glob(str(PASTES_DIR / "*.txt"))
+    top_files = sorted(txt_files, key=lambda fp: os.path.getsize(fp), reverse=True)[:10]
 
     result = []
     for txt_fp in top_files:
-        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
-        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
+        pid     = Path(txt_fp).stem
+        meta_fp = PASTES_DIR / f"{pid}.json"
 
         title = pid
-        if os.path.exists(meta_fp):
+        if meta_fp.exists():
             async with aiofiles.open(meta_fp, "r") as f_meta:
                 raw = await f_meta.read()
                 try:
@@ -74,9 +83,8 @@ async def top_pastes():
 # --- view a paste by ID ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
-    # locate the .txt
-    txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    if not os.path.exists(txt_path):
+    txt_path = PASTES_DIR / f"{paste_id}.txt"
+    if not txt_path.exists():
         raise HTTPException(status_code=404, detail="Paste not found")
 
     # read content
@@ -84,9 +92,9 @@ async def view_paste(request: Request, paste_id: str):
         content = await f.read()
 
     # read title metadata (fall back to ID)
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    meta_path = PASTES_DIR / f"{paste_id}.json"
     title = paste_id
-    if os.path.exists(meta_path):
+    if meta_path.exists():
         async with aiofiles.open(meta_path, "r") as f_meta:
             raw = await f_meta.read()
             try:
@@ -106,16 +114,16 @@ async def view_paste(request: Request, paste_id: str):
 # --- recent pastes (by modification time) ---
 @app.get("/api/recent")
 async def recent_pastes():
-    files = glob.glob(os.path.join(PASTES_DIR, "*.txt"))
-    recent_files = sorted(files, key=lambda fp: os.path.getmtime(fp), reverse=True)[:10]
+    txt_files = glob.glob(str(PASTES_DIR / "*.txt"))
+    recent_files = sorted(txt_files, key=lambda fp: os.path.getmtime(fp), reverse=True)[:10]
 
     result = []
     for txt_fp in recent_files:
-        pid     = os.path.splitext(os.path.basename(txt_fp))[0]
-        meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
+        pid     = Path(txt_fp).stem
+        meta_fp = PASTES_DIR / f"{pid}.json"
 
         title = pid
-        if os.path.exists(meta_fp):
+        if meta_fp.exists():
             async with aiofiles.open(meta_fp, "r") as f_meta:
                 raw = await f_meta.read()
                 try:
@@ -127,10 +135,12 @@ async def recent_pastes():
 
     return result
 
+
 # ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
+
 
 def start():
     import uvicorn
