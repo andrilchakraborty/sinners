@@ -59,16 +59,22 @@ def compute_expiry(created: datetime, expires: str) -> datetime | None:
     return created + delta
 
 
-async def is_still_valid(db, paste_id: str) -> bool:
-    row = await db.execute_fetchone(
+async def is_still_valid(db: aiosqlite.Connection, paste_id: str) -> bool:
+    # fetch expires_at
+    cursor = await db.execute(
         "SELECT expires_at FROM pastes WHERE id = ?",
         (paste_id,)
     )
+    row = await cursor.fetchone()
+    await cursor.close()
+
     if not row:
         return False
+
     (expires_at,) = row
     if expires_at is None:
         return True
+
     return datetime.utcnow() < datetime.fromisoformat(expires_at)
 
 
@@ -120,12 +126,18 @@ async def view_paste(request: Request, paste_id: str):
         if not await is_still_valid(db, paste_id):
             raise HTTPException(status_code=404, detail="Paste not found or expired")
 
-        row = await db.execute_fetchone(
+        cursor = await db.execute(
             "SELECT content, title FROM pastes WHERE id = ?",
             (paste_id,)
         )
+        row = await cursor.fetchone()
+        await cursor.close()
 
+    if not row:
+        # shouldn't happen if is_still_valid passed, but just in case
+        raise HTTPException(status_code=404, detail="Paste not found")
     content, title = row
+
     return templates.TemplateResponse("paste.html", {
         "request":  request,
         "paste_id": paste_id,
@@ -150,6 +162,7 @@ async def top_pastes():
             (now_iso,)
         )
         rows = await cursor.fetchall()
+        await cursor.close()
 
     return [{"id": pid, "title": title} for pid, title, _ in rows]
 
@@ -170,6 +183,7 @@ async def recent_pastes():
             (now_iso,)
         )
         rows = await cursor.fetchall()
+        await cursor.close()
 
     return [{"id": pid, "title": title} for pid, title in rows]
 
