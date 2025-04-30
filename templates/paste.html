@@ -5,13 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{{ title or paste_id }} – Sinners Pastes</title>
 
+  <!-- Open Graph / Facebook Embed -->
+  <meta property="og:title" content="{{ title or paste_id }} – Sinners Pastes" />
+  <meta property="og:description" content="Paste ID: {{ paste_id }} on Sinners Pastes" />
+  <meta property="og:url" content="https://sinners-pastes.onrender.com/paste/{{ paste_id }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://sinners-pastes.onrender.com/static/og-default.png" />
+  
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ title or paste_id }} – Sinners Pastes" />
+  <meta name="twitter:description" content="Paste ID: {{ paste_id }} on Sinners Pastes" />
+  <meta name="twitter:image" content="https://sinners-pastes.onrender.com/static/og-default.png" />
+
   <style>
     /* minimal dark theme */
     body {
       margin: 0; padding: 0;
       background: #0a0b13; color: #e0e0e0;
       font-family:'Segoe UI',sans-serif;
-      /* custom cursor with hotspot coordinates (16x16) */
       cursor: url('https://r2.guns.lol/2dadf882-86f8-41d9-8fc6-db6bfa8caeb8.webp') 16 16, auto;
     }
     header.nav {
