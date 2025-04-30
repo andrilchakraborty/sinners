@@ -29,11 +29,10 @@ async def index(request: Request):
 # --- create a new paste ---
 @app.post("/api/paste")
 async def create_paste(
-    content: str      = Form(...),
-    title: str        = Form("Untitled Paste"),
-    syntax: str       = Form("none"),
-    expires: str      = Form("never"),
-    visibility: str   = Form("public")
+    content: str    = Form(...),
+    title: str      = Form("Untitled Paste"),
+    syntax: str     = Form("none"),
+    visibility: str = Form("public")
 ):
     try:
         # enforce never-expire
@@ -46,7 +45,7 @@ async def create_paste(
         async with aiofiles.open(txt_path, "w") as f_txt:
             await f_txt.write(content)
 
-        # build metadata, initialize views = 0
+        # build metadata, initialize views = 0, never expire
         meta = {
             "title":      title,
             "syntax":     syntax,
@@ -77,7 +76,6 @@ async def top_pastes():
         pid     = os.path.splitext(os.path.basename(txt_fp))[0]
         meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
 
-        # default values
         info = {"id": pid, "title": pid, "views": 0}
         if os.path.exists(meta_fp):
             async with aiofiles.open(meta_fp, "r") as f_meta:
@@ -114,10 +112,8 @@ async def view_paste(request: Request, paste_id: str):
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 data = {}
-            # increment
             data["views"] = data.get("views", 0) + 1
             title = data.get("title", paste_id) or paste_id
-            # rewrite metadata
             await f_meta.seek(0)
             await f_meta.write(json.dumps(data, indent=2))
             await f_meta.truncate()
@@ -170,7 +166,7 @@ async def list_all_pastes():
             "title":      meta.get("title", pid),
             "syntax":     meta.get("syntax", "none"),
             "visibility": meta.get("visibility", "public"),
-            "expires":    meta.get("expires", "never"),
+            "expires":    "never",
             "created_at": meta.get("created_at", ""),
             "views":      meta.get("views", 0)
         }
