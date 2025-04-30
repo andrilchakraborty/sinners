@@ -1,4 +1,6 @@
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 import uuid
 import json
 import os
@@ -7,9 +9,6 @@ import asyncio
 import aiofiles
 import httpx
 from datetime import datetime
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 import logging
 
 # --- setup ---
@@ -22,13 +21,12 @@ os.makedirs(PASTES_DIR, exist_ok=True)
 # Your Render service URL
 SERVICE_URL = "https://sinners-pastes.onrender.com"
 
-
 # --- serve create/search page ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-
+# --- create a new paste ---
 @app.post("/api/paste")
 async def create_paste(
     content: str      = Form(...),
@@ -38,19 +36,14 @@ async def create_paste(
     visibility: str   = Form("public")
 ):
     try:
-        # force 'never' if you want to override the client
         expires = "never"
-
-        # generate IDs and file paths
         paste_id  = uuid.uuid4().hex[:8]
         txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
         meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
 
-        # 1) save the raw content
         async with aiofiles.open(txt_path, "w") as f_txt:
             await f_txt.write(content)
 
-        # 2) build and save full metadata including expires
         meta = {
             "title":      title,
             "syntax":     syntax,
@@ -61,19 +54,12 @@ async def create_paste(
         async with aiofiles.open(meta_path, "w") as f_meta:
             await f_meta.write(json.dumps(meta, indent=2))
 
-        # 3) success — return the URL in JSON
         return JSONResponse(status_code=200, content={"url": f"/paste/{paste_id}"})
-
     except Exception as e:
-        # log the stack trace on the server
         logger.exception("Failed to create paste")
-        # return a JSON error payload
         return JSONResponse(
             status_code=500,
-            content={
-                "error":   "Internal Server Error",
-                "details": str(e)
-            }
+            content={"error": "Internal Server Error", "details": str(e)}
         )
 
 # --- top pastes (by file size) ---
@@ -95,11 +81,8 @@ async def top_pastes():
                     title = json.loads(raw).get("title", pid) or pid
                 except json.JSONDecodeError:
                     pass
-
         result.append({"id": pid, "title": title})
-
     return result
-
 
 # --- view a paste by ID ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
@@ -123,12 +106,11 @@ async def view_paste(request: Request, paste_id: str):
                 pass
 
     return templates.TemplateResponse("paste.html", {
-        "request":   request,
-        "paste_id":  paste_id,
-        "title":     title,
-        "content":   content
+        "request":  request,
+        "paste_id": paste_id,
+        "title":    title,
+        "content":  content
     })
-
 
 # --- recent pastes (by modification time) ---
 @app.get("/api/recent")
@@ -149,11 +131,31 @@ async def recent_pastes():
                     title = json.loads(raw).get("title", pid) or pid
                 except json.JSONDecodeError:
                     pass
-
         result.append({"id": pid, "title": title})
-
     return result
 
+# --- all pastes (metadata list) ---
+@app.get("/api/all")
+async def list_all_pastes():
+    result = []
+    for meta_fp in glob.glob(os.path.join(PASTES_DIR, "*.json")):
+        pid = os.path.splitext(os.path.basename(meta_fp))[0]
+        async with aiofiles.open(meta_fp, "r") as f_meta:
+            raw = await f_meta.read()
+        try:
+            meta = json.loads(raw)
+        except json.JSONDecodeError:
+            meta = {}
+        entry = {
+            "id":         pid,
+            "title":      meta.get("title", pid),
+            "syntax":     meta.get("syntax", "none"),
+            "visibility": meta.get("visibility", "public"),
+            "expires":    meta.get("expires", "never"),
+            "created_at": meta.get("created_at", "")
+        }
+        result.append(entry)
+    return JSONResponse(content=result)
 
 # ─── Scheduled external ping ─────────────────────────────────────────────────
 @app.on_event("startup")
@@ -163,15 +165,12 @@ async def schedule_ping_task():
             while True:
                 try:
                     resp = await client.get(f"{SERVICE_URL}/ping")
-                    # optionally log if non-200:
                     if resp.status_code != 200:
                         print(f"Health ping returned {resp.status_code}")
                 except Exception as e:
                     print(f"External ping failed: {e!r}")
-                await asyncio.sleep(10)  # wait 10 seconds
-
+                await asyncio.sleep(10)
     asyncio.create_task(ping_loop())
-
 
 # ─── HEALTHCHECK ───────────────────────────────────────────────────────────────
 @app.get("/ping")
@@ -182,7 +181,6 @@ async def ping():
 def start():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
-
 
 if __name__ == "__main__":
     start()
