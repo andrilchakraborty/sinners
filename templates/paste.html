@@ -79,6 +79,13 @@
       width: 100px;
       z-index: 1000;
     }
+
+    /* Link styling in CodeMirror */
+    .cm-link {
+      text-decoration: underline;
+      color: #76b0ff;
+      cursor: pointer;
+    }
   </style>
 
   <!-- CodeMirror CSS -->
@@ -144,6 +151,31 @@
         viewportMargin: Infinity
       }
     );
+
+    // ─── Make URLs clickable ────────────────────────────────────────────
+    // Add an overlay that tags URL-like text as "link"
+    editor.addOverlay({
+      token: function(stream) {
+        // regex for http or https URLs
+        const urlRegex = /https?:\/\/[^\s]+/;
+        if (stream.match(urlRegex)) {
+          return "link";
+        }
+        // skip to next possible match
+        while (stream.next() && !stream.match(urlRegex, false)) {}
+        return null;
+      }
+    });
+
+    // Listen for clicks on links
+    editor.getWrapperElement().addEventListener('click', (e) => {
+      const pos = editor.coordsChar({ left: e.clientX, top: e.clientY });
+      const token = editor.getTokenAt(pos);
+      if (token.type === "link") {
+        window.open(token.string, '_blank');
+      }
+    });
+    // ────────────────────────────────────────────────────────────────────
 
     // Copy button logic
     document.getElementById('copy-btn').addEventListener('click', () => {
