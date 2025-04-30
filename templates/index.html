@@ -28,7 +28,7 @@
   <meta name="twitter:title" content="Sinners pastes – Pastebin" />
   <meta
     name="twitter:description"
-    content="Paste content for ppl to see. no i won't pay u get a job broke ass nigga!"" 
+    content="Paste content for ppl to see. no i won't pay u get a job broke ass nigga!"
   />
   <meta
     name="twitter:image"
@@ -167,9 +167,17 @@
       background: #1a1b27;
       border-radius: 5px;
       margin-bottom: .5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .paste-list li a { color: #53ffff; }
     .paste-list li a:hover { text-decoration: underline; }
+    .paste-list .views {
+      font-size: .8rem;
+      color: #888;
+      margin-left: 1rem;
+    }
 
     /* FOOTER */
     footer {
@@ -211,6 +219,7 @@
       <a id="nav-create">Create Paste</a>
       <a id="nav-top">Top Pastes</a>
       <a id="nav-recent">Recent Pastes</a>
+      <a id="nav-all">All Pastes</a>
     </nav>
   </header>
 
@@ -275,6 +284,12 @@
       <h1>Recent Pastes</h1>
       <ul class="paste-list" id="recent-list"></ul>
     </section>
+
+    <!-- ALL VIEW -->
+    <section id="all-view" class="view list-view">
+      <h1>All Pastes</h1>
+      <ul class="paste-list" id="all-list"></ul>
+    </section>
   </main>
 
   <!-- CodeMirror and modes -->
@@ -330,7 +345,7 @@
       });
 
       // view management
-      const views = ['create','top','recent'];
+      const views = ['create','top','recent','all'];
       const showView = id => {
         views.forEach(v => document.getElementById(v+'-view').classList.remove('active'));
         document.getElementById(id+'-view').classList.add('active');
@@ -340,7 +355,10 @@
       const renderList = (listId, items) => {
         const ul = document.getElementById(listId);
         ul.innerHTML = items.map(p => `
-          <li><a href="/paste/${p.id}">${p.title || p.id}</a></li>
+          <li>
+            <a href="/paste/${p.id}">${p.title || p.id}</a>
+            <span class="views">Views: ${p.views || 0}</span>
+          </li>
         `).join('');
       };
       const loadTop = async () => {
@@ -351,11 +369,16 @@
         const data = await fetch('/api/recent').then(r => r.json());
         renderList('recent-list', data);
       };
+      const loadAll = async () => {
+        const data = await fetch('/api/all').then(r => r.json());
+        renderList('all-list', data);
+      };
 
       // nav handlers
-      document.getElementById('nav-create').onclick    = e => { e.preventDefault(); showView('create'); };
-      document.getElementById('nav-top').onclick       = async e => { e.preventDefault(); await loadTop(); showView('top'); };
+      document.getElementById('nav-create').onclick    = e =>     { e.preventDefault(); showView('create'); };
+      document.getElementById('nav-top').onclick       = async e => { e.preventDefault(); await loadTop();    showView('top');    };
       document.getElementById('nav-recent').onclick    = async e => { e.preventDefault(); await loadRecent(); showView('recent'); };
+      document.getElementById('nav-all').onclick       = async e => { e.preventDefault(); await loadAll();    showView('all');    };
 
       // background audio control
       const audio   = document.getElementById('bg-audio');
@@ -377,7 +400,6 @@
       btn.addEventListener('click', () => {
         audio.muted = !audio.muted;
         btn.textContent = audio.muted ? '🔇' : '🔊';
-        // if unmuting, ensure it's playing
         if (!audio.muted) audio.play().catch(() => {});
       });
 
@@ -391,7 +413,7 @@
         }
       });
 
-      // ─── Keep-alive ping every 5 minutes ───────────────────────────────
+      // ─── Keep-alive ping every 10 seconds ───────────────────────────────
       setInterval(() => {
         fetch('/ping').catch(() => {});
       }, 10 * 1000);
