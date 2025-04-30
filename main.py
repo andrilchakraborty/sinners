@@ -26,7 +26,6 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# --- create new paste ---
 @app.post("/api/paste")
 async def create_paste(
     content: str      = Form(...),
@@ -35,21 +34,30 @@ async def create_paste(
     expires: str      = Form("never"),
     visibility: str   = Form("public")
 ):
-    paste_id = uuid.uuid4().hex[:8]
-    txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    # force 'never' if you want to override the client
+    expires = "never"
 
-    # save the raw content
+    paste_id   = uuid.uuid4().hex[:8]
+    txt_path   = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    meta_path  = os.path.join(PASTES_DIR, f"{paste_id}.json")
+
+    # 1) save the raw content
     async with aiofiles.open(txt_path, "w") as f_txt:
         await f_txt.write(content)
 
-    # save metadata (only title for now)
-    meta = {"title": title}
+    # 2) build full metadata including expires
+    meta = {
+        "title":       title,
+        "syntax":      syntax,
+        "visibility":  visibility,
+        "expires":     expires,               # now recorded
+        "created_at":  datetime.utcnow().isoformat()
+    }
     async with aiofiles.open(meta_path, "w") as f_meta:
-        await f_meta.write(json.dumps(meta))
+        await f_meta.write(json.dumps(meta, indent=2))
 
+    # 3) return the URL
     return {"url": f"/paste/{paste_id}"}
-
 
 # --- top pastes (by file size) ---
 @app.get("/api/top")
