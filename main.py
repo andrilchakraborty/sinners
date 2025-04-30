@@ -34,30 +34,44 @@ async def create_paste(
     expires: str      = Form("never"),
     visibility: str   = Form("public")
 ):
-    # force 'never' if you want to override the client
-    expires = "never"
+    try:
+        # force 'never' if you want to override the client
+        expires = "never"
 
-    paste_id   = uuid.uuid4().hex[:8]
-    txt_path   = os.path.join(PASTES_DIR, f"{paste_id}.txt")
-    meta_path  = os.path.join(PASTES_DIR, f"{paste_id}.json")
+        # generate IDs and file paths
+        paste_id  = uuid.uuid4().hex[:8]
+        txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+        meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
 
-    # 1) save the raw content
-    async with aiofiles.open(txt_path, "w") as f_txt:
-        await f_txt.write(content)
+        # 1) save the raw content
+        async with aiofiles.open(txt_path, "w") as f_txt:
+            await f_txt.write(content)
 
-    # 2) build full metadata including expires
-    meta = {
-        "title":       title,
-        "syntax":      syntax,
-        "visibility":  visibility,
-        "expires":     expires,               # now recorded
-        "created_at":  datetime.utcnow().isoformat()
-    }
-    async with aiofiles.open(meta_path, "w") as f_meta:
-        await f_meta.write(json.dumps(meta, indent=2))
+        # 2) build and save full metadata including expires
+        meta = {
+            "title":      title,
+            "syntax":     syntax,
+            "visibility": visibility,
+            "expires":    expires,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        async with aiofiles.open(meta_path, "w") as f_meta:
+            await f_meta.write(json.dumps(meta, indent=2))
 
-    # 3) return the URL
-    return {"url": f"/paste/{paste_id}"}
+        # 3) success — return the URL in JSON
+        return JSONResponse(status_code=200, content={"url": f"/paste/{paste_id}"})
+
+    except Exception as e:
+        # log the stack trace on the server
+        logger.exception("Failed to create paste")
+        # return a JSON error payload
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error":   "Internal Server Error",
+                "details": str(e)
+            }
+        )
 
 # --- top pastes (by file size) ---
 @app.get("/api/top")
