@@ -36,20 +36,24 @@ async def create_paste(
     visibility: str   = Form("public")
 ):
     try:
+        # enforce never-expire
         expires = "never"
         paste_id  = uuid.uuid4().hex[:8]
         txt_path  = os.path.join(PASTES_DIR, f"{paste_id}.txt")
         meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
 
+        # save the content
         async with aiofiles.open(txt_path, "w") as f_txt:
             await f_txt.write(content)
 
+        # build metadata, initialize views = 0
         meta = {
             "title":      title,
             "syntax":     syntax,
             "visibility": visibility,
             "expires":    expires,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
+            "views":      0
         }
         async with aiofiles.open(meta_path, "w") as f_meta:
             await f_meta.write(json.dumps(meta, indent=2))
@@ -73,43 +77,55 @@ async def top_pastes():
         pid     = os.path.splitext(os.path.basename(txt_fp))[0]
         meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
 
-        title = pid
+        # default values
+        info = {"id": pid, "title": pid, "views": 0}
         if os.path.exists(meta_fp):
             async with aiofiles.open(meta_fp, "r") as f_meta:
                 raw = await f_meta.read()
                 try:
-                    title = json.loads(raw).get("title", pid) or pid
+                    obj = json.loads(raw)
+                    info["title"] = obj.get("title", pid) or pid
+                    info["views"] = obj.get("views", 0)
                 except json.JSONDecodeError:
                     pass
-        result.append({"id": pid, "title": title})
+
+        result.append(info)
     return result
 
 # --- view a paste by ID ---
 @app.get("/paste/{paste_id}", response_class=HTMLResponse)
 async def view_paste(request: Request, paste_id: str):
     txt_path = os.path.join(PASTES_DIR, f"{paste_id}.txt")
+    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+
     if not os.path.exists(txt_path):
         raise HTTPException(status_code=404, detail="Paste not found")
 
+    # read content
     async with aiofiles.open(txt_path, "r") as f:
         content = await f.read()
 
-    meta_path = os.path.join(PASTES_DIR, f"{paste_id}.json")
+    # load & increment views
     title = paste_id
     if os.path.exists(meta_path):
-        async with aiofiles.open(meta_path, "r") as f_meta:
+        async with aiofiles.open(meta_path, "r+") as f_meta:
             raw = await f_meta.read()
             try:
                 data = json.loads(raw)
-                title = data.get("title", paste_id) or paste_id
             except json.JSONDecodeError:
-                pass
-
+                data = {}
+            # increment
+            data["views"] = data.get("views", 0) + 1
+            title = data.get("title", paste_id) or paste_id
+            # rewrite metadata
+            await f_meta.seek(0)
+            await f_meta.write(json.dumps(data, indent=2))
+            await f_meta.truncate()
     return templates.TemplateResponse("paste.html", {
-        "request":  request,
-        "paste_id": paste_id,
-        "title":    title,
-        "content":  content
+        "request":   request,
+        "paste_id":  paste_id,
+        "title":     title,
+        "content":   content
     })
 
 # --- recent pastes (by modification time) ---
@@ -123,15 +139,18 @@ async def recent_pastes():
         pid     = os.path.splitext(os.path.basename(txt_fp))[0]
         meta_fp = os.path.join(PASTES_DIR, f"{pid}.json")
 
-        title = pid
+        info = {"id": pid, "title": pid, "views": 0}
         if os.path.exists(meta_fp):
             async with aiofiles.open(meta_fp, "r") as f_meta:
                 raw = await f_meta.read()
                 try:
-                    title = json.loads(raw).get("title", pid) or pid
+                    obj = json.loads(raw)
+                    info["title"] = obj.get("title", pid) or pid
+                    info["views"] = obj.get("views", 0)
                 except json.JSONDecodeError:
                     pass
-        result.append({"id": pid, "title": title})
+
+        result.append(info)
     return result
 
 # --- all pastes (metadata list) ---
@@ -152,7 +171,8 @@ async def list_all_pastes():
             "syntax":     meta.get("syntax", "none"),
             "visibility": meta.get("visibility", "public"),
             "expires":    meta.get("expires", "never"),
-            "created_at": meta.get("created_at", "")
+            "created_at": meta.get("created_at", ""),
+            "views":      meta.get("views", 0)
         }
         result.append(entry)
     return JSONResponse(content=result)
