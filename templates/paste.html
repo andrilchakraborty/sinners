@@ -56,6 +56,21 @@
     .copy-btn:hover {
       background: #3ad3d3;
     }
+
+    /* Link list (indented) */
+    #links-list {
+      padding: 0 2rem;
+      margin-bottom: 2rem;
+    }
+    .link-indent {
+      margin-left: 1.5rem;
+      margin-bottom: .5rem;
+    }
+    #links-list a {
+      color: #76b0ff;
+      text-decoration: underline;
+    }
+
     footer {
       text-align:center; padding:1rem; color:#666; font-size:.8rem;
     }
@@ -99,7 +114,7 @@
   <!-- background audio -->
   <audio
     id="bg-audio"
-    src="https://cdn.discordapp.com/attachments/1343576085098664020/1366630449656496189/C418_-_Subwoofer_Lullaby_-_Minecraft_Volume_Alpha.mp4?ex=68139f89&is=68124e09&hm=5c5e4a11c84252adefd1f4d80b8d5dbc4ee1693d52df63f75d71e069af73b0ea&"
+    src="https://cdn.discordapp.com/attachments/1343576085098664020/1366630449656496189/C418_-_Subwoofer_Lullaby_-_Minecraft_Volume_Alpha.mp4?ex=6811a549&is=681053c9&hm=f5a0587a4426bd1c7d8e91d69a6d66eb700d70680ff8e99540a71013d118f515&"
     loop
     autoplay
   ></audio>
@@ -122,6 +137,9 @@
 
     <textarea id="paste-editor" readonly>{{ content }}</textarea>
   </main>
+
+  <!-- Indented links list (populated by JS) -->
+  <div id="links-list"></div>
 
   <footer>© 2025 Sinners Pastes</footer>
 
@@ -154,38 +172,56 @@
 
     // ─── Make URLs clickable (desktop + mobile) ──────────────────────────
     editor.addOverlay({
-      token: function(stream) {
+      token(stream) {
         const urlRegex = /https?:\/\/[^\s]+/;
-        if (stream.match(urlRegex)) {
-          return "link";
-        }
+        if (stream.match(urlRegex)) return "link";
         while (stream.next() && !stream.match(urlRegex, false)) {}
         return null;
       }
     });
 
-    // shared handler for click & tap
     function handleOpen(e) {
-      // determine coordinates (mouse or touch)
-      const x = e.clientX !== undefined
-        ? e.clientX
-        : (e.touches && e.touches[0] && e.touches[0].clientX);
-      const y = e.clientY !== undefined
-        ? e.clientY
-        : (e.touches && e.touches[0] && e.touches[0].clientY);
-      if (x == null || y == null) return;
-
+      let x, y;
+      if (e.type === 'pointerup' || e.type === 'click') {
+        x = e.clientX; y = e.clientY;
+      } else if (e.type === 'touchend') {
+        const t = e.changedTouches[0];
+        x = t.clientX; y = t.clientY;
+      } else return;
+      
       const pos   = editor.coordsChar({ left: x, top: y });
       const token = editor.getTokenAt(pos);
       if (token.type === "link") {
-        window.open(token.string, '_blank');
+        window.open(token.string, "_blank");
         e.preventDefault();
       }
     }
 
-    const wrapper = editor.getWrapperElement();
-    wrapper.addEventListener('click', handleOpen);
-    wrapper.addEventListener('touchend', handleOpen);
+    // attach to the scrolling container
+    const scroller = editor.getScrollerElement();
+    scroller.addEventListener('click',     handleOpen);
+    scroller.addEventListener('pointerup', handleOpen);
+    scroller.addEventListener('touchend',  handleOpen);
+    // ────────────────────────────────────────────────────────────────────
+
+    // ─── Generate indented link list ────────────────────────────────────
+    const linksListEl = document.getElementById('links-list');
+    const allLinks = editor.getValue().match(/https?:\/\/[^\s]+/g);
+    if (allLinks) {
+      allLinks.forEach(link => {
+        const div = document.createElement('div');
+        div.className = 'link-indent';
+        const a = document.createElement('a');
+        a.href = link;
+        a.textContent = link;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        // confirm before opening on any device
+        a.onclick = () => confirm('Open this link in your browser?');
+        div.appendChild(a);
+        linksListEl.appendChild(div);
+      });
+    }
     // ────────────────────────────────────────────────────────────────────
 
     // Copy button logic
