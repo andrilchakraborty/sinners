@@ -23,15 +23,17 @@
     body {
       margin: 0; padding: 0;
       background: #0a0b13; color: #e0e0e0;
-      font-family:'Segoe UI',sans-serif;
+      font-family: 'Segoe UI', sans-serif;
       cursor: url('https://r2.guns.lol/2dadf882-86f8-41d9-8fc6-db6bfa8caeb8.webp') 16 16, auto;
     }
     header.nav {
-      padding:1rem 2rem; background:#11121b; color:#fff;
+      padding: 1rem 2rem; background: #11121b; color: #fff;
     }
-    header.nav .logo { font-size:1.5rem; }
+    header.nav .logo {
+      font-size: 1.5rem;
+    }
     main {
-      padding:2rem;
+      padding: 2rem;
     }
     .title-row {
       display: flex;
@@ -41,6 +43,7 @@
     .title-row h1 {
       margin: 0;
       font-size: 1.8rem;
+      flex: 1;
     }
     .copy-btn {
       margin-left: 1rem;
@@ -56,25 +59,27 @@
     .copy-btn:hover {
       background: #3ad3d3;
     }
-
-    /* Link list (indented) */
-    #links-list {
-      padding: 0 2rem;
-      margin-bottom: 2rem;
+    /* Paste display */
+    #paste-content {
+      background: #1e1e2e;
+      padding: 1rem;
+      border-radius: 5px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: .9rem;
+      line-height: 1.4;
     }
-    .link-indent {
-      margin-left: 1.5rem;
-      margin-bottom: .5rem;
-    }
-    #links-list a {
+    #paste-content a {
       color: #76b0ff;
       text-decoration: underline;
     }
-
     footer {
-      text-align:center; padding:1rem; color:#666; font-size:.8rem;
+      text-align: center;
+      padding: 1rem;
+      color: #666;
+      font-size: .8rem;
     }
-
     /* AUDIO CONTROLS */
     #mute-btn {
       position: fixed;
@@ -94,20 +99,7 @@
       width: 100px;
       z-index: 1000;
     }
-
-    /* Link styling in CodeMirror */
-    .cm-link {
-      text-decoration: underline;
-      color: #76b0ff;
-      cursor: pointer;
-    }
   </style>
-
-  <!-- CodeMirror CSS -->
-  <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css"/>
-  <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/dracula.min.css"/>
 </head>
 <body>
 
@@ -129,105 +121,29 @@
     <div class="title-row">
       <!-- show the user-entered title, or fallback to the ID -->
       <h1>{{ title or paste_id }}</h1>
-
-      <button id="copy-btn" class="copy-btn" title="Copy to clipboard">
-        Copy
-      </button>
+      <button id="copy-btn" class="copy-btn" title="Copy to clipboard">Copy</button>
     </div>
 
-    <textarea id="paste-editor" readonly>{{ content }}</textarea>
+    <pre id="paste-content"></pre>
   </main>
-
-  <!-- Indented links list (populated by JS) -->
-  <div id="links-list"></div>
 
   <footer>© 2025 Sinners Pastes</footer>
 
-  <!-- CodeMirror & modes -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/xml/xml.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/javascript/javascript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/css/css.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/htmlmixed/htmlmixed.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/python/python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/clike/clike.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/php/php.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/ruby/ruby.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/go/go.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/sql/sql.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/shell/shell.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/markdown/markdown.min.js"></script>
-
   <script>
-    // Initialize CodeMirror in read-only mode
-    const editor = CodeMirror.fromTextArea(
-      document.getElementById('paste-editor'), {
-        mode: 'text/plain',
-        theme: 'dracula',
-        lineNumbers: true,
-        readOnly: true,
-        viewportMargin: Infinity
-      }
-    );
+    // Populate and linkify paste content
+    (function() {
+      const raw = `{{ content|e }}`;
+      const linked = raw.replace(
+        /(https?:\/\/[^\s]+)/g,
+        '<a href="$1" target="_blank" rel="noopener">$1</a>'
+      );
+      document.getElementById('paste-content').innerHTML = linked;
+    })();
 
-    // ─── Make URLs clickable (desktop + mobile) ──────────────────────────
-    editor.addOverlay({
-      token(stream) {
-        const urlRegex = /https?:\/\/[^\s]+/;
-        if (stream.match(urlRegex)) return "link";
-        while (stream.next() && !stream.match(urlRegex, false)) {}
-        return null;
-      }
-    });
-
-    function handleOpen(e) {
-      let x, y;
-      if (e.type === 'pointerup' || e.type === 'click') {
-        x = e.clientX; y = e.clientY;
-      } else if (e.type === 'touchend') {
-        const t = e.changedTouches[0];
-        x = t.clientX; y = t.clientY;
-      } else return;
-      
-      const pos   = editor.coordsChar({ left: x, top: y });
-      const token = editor.getTokenAt(pos);
-      if (token.type === "link") {
-        window.open(token.string, "_blank");
-        e.preventDefault();
-      }
-    }
-
-    // attach to the scrolling container
-    const scroller = editor.getScrollerElement();
-    scroller.addEventListener('click',     handleOpen);
-    scroller.addEventListener('pointerup', handleOpen);
-    scroller.addEventListener('touchend',  handleOpen);
-    // ────────────────────────────────────────────────────────────────────
-
-    // ─── Generate indented link list ────────────────────────────────────
-    const linksListEl = document.getElementById('links-list');
-    const allLinks = editor.getValue().match(/https?:\/\/[^\s]+/g);
-    if (allLinks) {
-      allLinks.forEach(link => {
-        const div = document.createElement('div');
-        div.className = 'link-indent';
-        const a = document.createElement('a');
-        a.href = link;
-        a.textContent = link;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        // confirm before opening on any device
-        a.onclick = () => confirm('Open this link in your browser?');
-        div.appendChild(a);
-        linksListEl.appendChild(div);
-      });
-    }
-    // ────────────────────────────────────────────────────────────────────
-
-    // Copy button logic
+    // Copy-to-clipboard
     document.getElementById('copy-btn').addEventListener('click', () => {
-      const code = editor.getValue();
-      navigator.clipboard.writeText(code).then(() => {
+      const text = document.getElementById('paste-content').textContent;
+      navigator.clipboard.writeText(text).then(() => {
         const btn = document.getElementById('copy-btn');
         const orig = btn.textContent;
         btn.textContent = 'Copied!';
@@ -235,26 +151,30 @@
       });
     });
 
-    // ─── Audio Controls ─────────────────────────────────────────────────
+    // Audio Controls
     const audio  = document.getElementById('bg-audio');
     const btn    = document.getElementById('mute-btn');
     const slider = document.getElementById('volume-slider');
 
+    // initial state
     audio.volume = slider.value;
     btn.textContent = audio.muted ? '🔇' : '🔊';
 
+    // kickstart playback on first user interaction
     const kickstart = () => {
       audio.play().catch(e => console.warn('playback error', e));
       document.body.removeEventListener('click', kickstart);
     };
     document.body.addEventListener('click', kickstart, { once: true });
 
+    // mute/unmute toggle
     btn.addEventListener('click', () => {
       audio.muted = !audio.muted;
       btn.textContent = audio.muted ? '🔇' : '🔊';
       if (!audio.muted) audio.play().catch(() => {});
     });
 
+    // volume slider control
     slider.addEventListener('input', e => {
       audio.volume = e.target.value;
       if (audio.muted && audio.volume > 0) {
@@ -263,7 +183,6 @@
         audio.play().catch(() => {});
       }
     });
-    // ────────────────────────────────────────────────────────────────────
   </script>
 </body>
 </html>
