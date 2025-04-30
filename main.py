@@ -8,11 +8,12 @@ import httpx
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+import logging
 
 # --- setup ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
+logger = logging.getLogger(__name__)
 PASTES_DIR = "pastes"
 os.makedirs(PASTES_DIR, exist_ok=True)
 
