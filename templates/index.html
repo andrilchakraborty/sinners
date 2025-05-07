@@ -190,6 +190,27 @@
       font-size: 1rem;
     }
 
+    /* Pagination controls */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .pagination button {
+      padding: .5rem 1rem;
+      border: none;
+      border-radius: 5px;
+      background: #53ffff;
+      color: #11121b;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .pagination button:disabled {
+      background: #3a3a3a;
+      cursor: default;
+    }
+
     /* FOOTER */
     footer {
       text-align: center;
@@ -302,6 +323,11 @@
       <!-- search bar -->
       <input type="text" id="search-all" placeholder="Search by title or ID..." />
       <ul class="paste-list" id="all-list"></ul>
+      <!-- pagination buttons -->
+      <div class="pagination">
+        <button id="prev-page" disabled>Previous</button>
+        <button id="next-page" disabled>Next</button>
+      </div>
     </section>
   </main>
 
@@ -375,6 +401,21 @@
         `).join('');
       };
       let allItems = [];
+      let currentAllPage = 0;
+      const pageSize = 10;
+
+      const updatePaginationButtons = () => {
+        document.getElementById('prev-page').disabled = currentAllPage === 0;
+        document.getElementById('next-page').disabled = (currentAllPage + 1) * pageSize >= allItems.length;
+      };
+
+      const renderAllPage = () => {
+        const start = currentAllPage * pageSize;
+        const pageItems = allItems.slice(start, start + pageSize);
+        renderList('all-list', pageItems);
+        updatePaginationButtons();
+      };
+
       const loadTop = async () => {
         const data = await fetch('/api/top').then(r => r.json());
         renderList('top-list', data);
@@ -386,8 +427,23 @@
       const loadAll = async () => {
         const data = await fetch('/api/all').then(r => r.json());
         allItems = data;
-        renderList('all-list', allItems);
+        currentAllPage = 0;
+        renderAllPage();
       };
+
+      // pagination button handlers
+      document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentAllPage > 0) {
+          currentAllPage--;
+          renderAllPage();
+        }
+      });
+      document.getElementById('next-page').addEventListener('click', () => {
+        if ((currentAllPage + 1) * pageSize < allItems.length) {
+          currentAllPage++;
+          renderAllPage();
+        }
+      });
 
       // search filter
       document.getElementById('search-all').addEventListener('input', e => {
@@ -396,7 +452,11 @@
           p.title.toLowerCase().startsWith(q) ||
           p.id.toLowerCase().startsWith(q)
         );
-        renderList('all-list', filtered);
+        currentAllPage = 0;
+        renderList('all-list', filtered.slice(0, pageSize));
+        // when searching, disable pagination or adjust as needed
+        document.getElementById('prev-page').disabled = true;
+        document.getElementById('next-page').disabled = filtered.length <= pageSize;
       });
 
       // nav handlers
